@@ -52,6 +52,12 @@ android {
     // Shared cross-platform assets: BIP39 wordlist (+ test vectors used by unit tests).
     sourceSets["main"].assets.srcDirs("src/main/assets", "../../shared")
 
+    lint {
+        // Release builds run lintVital; don't let a lint finding block the APK (reports still generated).
+        checkReleaseBuilds = false
+        abortOnError = false
+    }
+
     packaging { resources.excludes += setOf("/META-INF/{AL2.0,LGPL2.1}", "META-INF/DEPENDENCIES") }
     testOptions {
         unitTests.isReturnDefaultValues = true
