@@ -20,7 +20,7 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.StickyNote2
+import androidx.compose.material.icons.automirrored.filled.StickyNote2
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.CircularProgressIndicator
@@ -61,7 +61,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 enum class Dest(val title: String, val icon: ImageVector) {
-    Notes("Notes", Icons.Default.StickyNote2),
+    Notes("Notes", Icons.AutoMirrored.Filled.StickyNote2),
     Expenses("Expenses", Icons.Default.Payments),
     Archive("Archive", Icons.Default.Archive),
     Hidden("Hidden notes", Icons.Default.VisibilityOff),

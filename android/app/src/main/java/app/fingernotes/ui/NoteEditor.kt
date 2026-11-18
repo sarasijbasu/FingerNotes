@@ -41,7 +41,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.FormatBold
 import androidx.compose.material.icons.filled.FormatItalic
-import androidx.compose.material.icons.filled.FormatListBulleted
+import androidx.compose.material.icons.automirrored.filled.FormatListBulleted
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Mic
@@ -227,7 +227,7 @@ fun NoteEditor(vm: AppViewModel, note: Note, isNew: Boolean, onClose: () -> Unit
                         Row {
                             IconButton({ wrap("**") }) { Icon(Icons.Default.FormatBold, "Bold") }
                             IconButton({ wrap("*") }) { Icon(Icons.Default.FormatItalic, "Italic") }
-                            IconButton(::bullet) { Icon(Icons.Default.FormatListBulleted, "Bullet") }
+                            IconButton(::bullet) { Icon(Icons.AutoMirrored.Filled.FormatListBulleted, "Bullet") }
                             IconButton({ panel = if (panel == "link") "" else "link" }) { Icon(Icons.Default.Link, "Link") }
                             Box(Modifier.weight(1f))
                             TextButton({ preview = !preview }) { Text(if (preview) "Edit" else "Preview") }

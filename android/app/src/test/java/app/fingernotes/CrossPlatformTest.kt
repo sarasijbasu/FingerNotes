@@ -31,9 +31,8 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
-import java.io.ByteArrayOutputStream
 import java.io.File
-import java.util.zip.ZipInputStream
+import java.util.zip.ZipFile
 
 /**
  * Proves Android <-> Chrome interoperability against fixtures produced by the extension
@@ -137,12 +136,14 @@ class CrossPlatformTest {
             Expense("1", 10.5, "₹", "Tea", "food", "CASH", 1_767_000_000_000),
             Expense("2", 20.0, "₹", "Bus", "transport", "UPI_BANK", 1_767_100_000_000),
         )
-        val buf = ByteArrayOutputStream()
-        XlsxExporter.write(buf, ex, mapOf("food" to Category("food", "Food", "#F00", true, 0, 0, "")))
+        // FastExcel streams zip64 data descriptors, which ZipInputStream rejects; Excel (and ZipFile)
+        // read the central directory instead, so inspect it the same way.
+        val f = File.createTempFile("expenses", ".xlsx").apply { deleteOnExit() }
+        f.outputStream().use { XlsxExporter.write(it, ex, mapOf("food" to Category("food", "Food", "#F00", true, 0, 0, ""))) }
         var sheet = ""; var strings = ""
-        ZipInputStream(buf.toByteArray().inputStream()).use { z ->
-            generateSequence { z.nextEntry }.forEach { e ->
-                val t = z.readBytes().decodeToString()
+        ZipFile(f).use { z ->
+            for (e in z.entries()) {
+                val t = z.getInputStream(e).use { it.readBytes() }.decodeToString()
                 if (e.name.endsWith("sheet1.xml")) sheet = t
                 if (e.name.endsWith("sharedStrings.xml")) strings = t
             }
