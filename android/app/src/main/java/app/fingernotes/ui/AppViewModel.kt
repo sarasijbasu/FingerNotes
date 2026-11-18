@@ -21,7 +21,9 @@ import app.fingernotes.data.AppSettings
 import app.fingernotes.data.Repository
 import app.fingernotes.sync.MessageChannel
 import app.fingernotes.sync.Peer
-import app.fingernotes.sync.RelaySignaling
+import app.fingernotes.sync.AutoState
+import app.fingernotes.sync.AutoSync
+import app.fingernotes.sync.PeerRecord
 import app.fingernotes.sync.SelfInfo
 import app.fingernotes.sync.SyncSession
 import kotlinx.coroutines.Deferred
@@ -33,6 +35,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -45,7 +48,6 @@ import java.io.File
 
 data class Snack(val text: String, val actionLabel: String? = null, val action: (suspend () -> Unit)? = null)
 
-@Serializable data class PeerRecord(val deviceId: String, val name: String, val platform: String, val lastSync: Long)
 
 sealed interface SyncStage {
     data object Idle : SyncStage
@@ -53,7 +55,6 @@ sealed interface SyncStage {
     data object AwaitOffer : SyncStage
     data class ShowAnswer(val code: String) : SyncStage
     data object Syncing : SyncStage
-    data object Relay : SyncStage
 }
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -82,6 +83,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             repoFlow.value = withContext(Dispatchers.IO) { container.repository() }
             ready.value = true
         }
+        // Internet auto-sync runs only while unlocked; restart it when the relay URL changes.
+        viewModelScope.launch {
+            kotlinx.coroutines.flow.combine(lock.locked, settings) { locked, s -> locked to s.signalingUrl }
+                .distinctUntilChanged()
+                .collect { (locked, url) -> if (locked || !ready.value) autoSync?.stop() else restartAutoSync(url) }
+        }
     }
 
     fun snack(text: String, actionLabel: String? = null, action: (suspend () -> Unit)? = null) {
@@ -94,7 +101,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun onUnlocked() {
         lock.unlock()
-        io { purgeExpired() }
+        io { purgeExpired() } // auto-sync starts from the lock-state collector in init
     }
 
     fun updateSettings(f: (AppSettings) -> AppSettings) = container.settings.update(f)
@@ -149,7 +156,24 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     val syncStage = MutableStateFlow<SyncStage>(SyncStage.Idle)
     val syncLog = MutableStateFlow<List<String>>(emptyList())
     private var pendingPeer: Peer? = null
-    private var relay: RelaySignaling? = null
+
+    /* ---- internet device-to-device auto sync ---- */
+    private var autoSync: AutoSync? = null
+    val autoState = MutableStateFlow(AutoState())
+    private var autoStateJob: kotlinx.coroutines.Job? = null
+
+    private fun restartAutoSync(url: String) {
+        val r = repoFlow.value ?: return
+        val a = autoSync ?: AutoSync(getApplication(), r, { settings.value.deviceName }, { settings.value.useStun }) { peers.value = it }
+            .also { created ->
+                autoSync = created
+                autoStateJob = viewModelScope.launch { created.state.collect { autoState.value = it } }
+            }
+        a.start(url)
+    }
+
+    /** Pull-to-refresh: sync with every online chain device, then report. */
+    suspend fun refreshSync(): String = autoSync?.refresh() ?: "Sync is not running — unlock the app first"
 
     fun loadChain() = io {
         val m = getMeta("chain")
@@ -161,6 +185,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun setChain(mnemonic: String?) = io {
         setMeta("chain", mnemonic?.let { Bip39.normalize(it) })
         loadChain()
+        restartAutoSync(settings.value.signalingUrl)
     }
 
     private fun log(s: String) {
@@ -187,7 +212,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         } catch (e: Exception) {
             log("Error: ${e.message}")
         } finally {
-            syncStage.value = if (relay != null) SyncStage.Relay else SyncStage.Idle
+            syncStage.value = SyncStage.Idle
         }
     }
 
@@ -229,49 +254,14 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun startRelay() {
-        val m = material.value ?: return
-        val url = settings.value.signalingUrl.ifBlank { return }
-        val seen = HashSet<String>()
-        var offering: Peer? = null
-        lateinit var r: RelaySignaling
-        r = RelaySignaling(url, m.chainId, m.key, onStatus = ::log, onSignal = handler@{ sig ->
-            if (sig.deviceId == self.deviceId) return@handler
-            viewModelScope.launch(Dispatchers.IO) {
-                when (sig.type) {
-                    "announce" -> {
-                        log("${sig.deviceName} is online")
-                        if (self.deviceId > sig.deviceId) {
-                            val p = Peer(Peer.factory(getApplication()), settings.value.useStun).also { offering = it }
-                            val (sdp, ch) = p.createOffer()
-                            r.send(signal("offer", sdp)); runChannel(ch)
-                        } else if (seen.add(sig.deviceId)) r.send(signal("announce"))
-                    }
-                    "offer" -> {
-                        val p = Peer(Peer.factory(getApplication()), settings.value.useStun)
-                        val (sdp, ch) = p.answerOffer(sig.sdp!!)
-                        r.send(signal("answer", sdp)); runChannel(ch)
-                    }
-                    "answer" -> offering?.let { it.acceptAnswer(sig.sdp!!); offering = null }
-                }
-            }
-        })
-        relay = r
-        r.connect {
-            syncStage.value = SyncStage.Relay
-            r.send(signal("announce"))
-            log("Waiting for other devices on the relay…")
-        }
-    }
-
     fun cancelSync() {
         pendingPeer?.close(); pendingPeer = null
-        relay?.close(); relay = null
         syncStage.value = SyncStage.Idle
     }
 
     override fun onCleared() {
         cancelSync()
+        autoSync?.stop()
         super.onCleared()
     }
 }

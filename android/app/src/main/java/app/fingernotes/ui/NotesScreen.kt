@@ -17,6 +17,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
 import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
 import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridItemSpan
@@ -122,8 +124,11 @@ fun NotesScreen(vm: AppViewModel, filter: NotesFilter, onEdit: (Note, Boolean) -
                     }
                 }
             }
+            SyncStatusLine(vm)
+            SyncRefreshBox(vm, Modifier.fillMaxSize()) {
             if (visible.isEmpty()) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                // Scrollable so the pull-to-refresh gesture works on an empty list too.
+                Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(top = 120.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
                         when {
                             q.isNotBlank() -> "No matching notes"
@@ -146,6 +151,7 @@ fun NotesScreen(vm: AppViewModel, filter: NotesFilter, onEdit: (Note, Boolean) -
                     if (pinned.isNotEmpty() && others.isNotEmpty()) item(span = StaggeredGridItemSpan.FullLine) { SectionTitle("Others") }
                     items(others.size, key = { others[it].id }) { i -> SwipeableNote(vm, others[i], labelMap) { onEdit(others[i], false) } }
                 }
+            }
             }
         }
         if (filter != NotesFilter.Archive) {

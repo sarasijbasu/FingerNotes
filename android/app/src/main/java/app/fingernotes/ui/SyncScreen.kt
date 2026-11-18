@@ -38,6 +38,7 @@ import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 import androidx.activity.compose.rememberLauncherForActivityResult
 import java.text.DateFormat
+import kotlinx.coroutines.launch
 import java.util.Date
 
 @Composable
@@ -62,6 +63,7 @@ fun SyncScreen(vm: AppViewModel) {
         if (!loaded) return@Column
         if (chain == null) ChainSetup(vm) else {
             ChainCard(vm, chain!!, material?.chainId)
+            InternetSyncCard(vm)
             if (material != null) ConnectCard(vm)
             PeersCard(vm)
         }
@@ -137,6 +139,33 @@ private fun ChainCard(vm: AppViewModel, chain: String, chainId: String?) {
 }
 
 @Composable
+private fun InternetSyncCard(vm: AppViewModel) {
+    val st by vm.autoState.collectAsState()
+    val settings by vm.settings.collectAsState()
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    var busy by remember { mutableStateOf(false) }
+    Card { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Internet sync (device-to-device)", style = MaterialTheme.typography.titleLarge)
+        if (settings.signalingUrl.isBlank()) {
+            Text("To sync devices on different networks, deploy the free sync helper (signaling-worker/README.md) and paste its URL into Settings → Relay URL on every device. Notes still travel only device-to-device, end-to-end encrypted.")
+            return@Column
+        }
+        Text("Devices on this chain find each other through your sync helper and connect directly (or via encrypted TURN when a network blocks direct connections). They sync automatically while open; pull down on the notes list to sync now.",
+            style = MaterialTheme.typography.bodySmall)
+        val last = st.lastSyncAt?.let { " · last sync " + DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(it)) } ?: ""
+        Text("Status: ${st.status.name.lowercase()}$last")
+        val now = System.currentTimeMillis()
+        st.online.filterValues { now - it.seen < 10 * 60_000 }.values.forEach { Text("● ${it.name} (${it.platform}) online", style = MaterialTheme.typography.bodySmall) }
+        st.lastResult?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+        Button({ scope.launch { busy = true; vm.snack(vm.refreshSync()); busy = false } }, enabled = !busy) { Text(if (busy) "Syncing…" else "Sync now") }
+        if (st.log.isNotEmpty()) SelectionContainer {
+            Text(st.log.joinToString("\n"), fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(8.dp)).padding(8.dp))
+        }
+    } }
+}
+
+@Composable
 private fun ConnectCard(vm: AppViewModel) {
     val stage by vm.syncStage.collectAsState()
     val log by vm.syncLog.collectAsState()
@@ -146,13 +175,12 @@ private fun ConnectCard(vm: AppViewModel) {
     val scan = rememberQrScanner { vm.handleCode(it) }
 
     Card { Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text("Sync now", style = MaterialTheme.typography.titleLarge)
+        Text("Offline QR pairing", style = MaterialTheme.typography.titleLarge)
         when (val s = stage) {
             SyncStage.Idle -> {
-                Text("Offline QR handshake: one device shows a code, the other scans it and shows a reply. Works on the same Wi-Fi/LAN with no internet.")
-                Button({ vm.startOffer() }) { Text("Show my code (start)") }
+                Text("No internet needed: one device shows a code, the other scans it and shows a reply. Works when both are on the same Wi-Fi/LAN.")
+                OutlinedButton({ vm.startOffer() }) { Text("Show my code (start)") }
                 OutlinedButton({ vm.awaitOffer() }) { Text("Scan their code (join)") }
-                if (settings.signalingUrl.isNotBlank()) OutlinedButton({ vm.startRelay() }) { Text("Auto-connect via relay") }
             }
             is SyncStage.ShowOffer -> {
                 Text("Step 1 — scan this with the other device (Sync → Scan their code):")
@@ -167,7 +195,6 @@ private fun ConnectCard(vm: AppViewModel) {
             }
             SyncStage.AwaitOffer -> Text("Scan or paste the code shown on the other device:")
             SyncStage.Syncing -> Text("Syncing…")
-            SyncStage.Relay -> Text("Relay active — other devices on this chain connect automatically.")
         }
         if (stage is SyncStage.ShowOffer || stage == SyncStage.AwaitOffer) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -176,7 +203,7 @@ private fun ConnectCard(vm: AppViewModel) {
             OutlinedTextField(paste, { paste = it }, label = { Text("…or paste FN1: code") }, singleLine = true, modifier = Modifier.fillMaxWidth())
             OutlinedButton({ vm.handleCode(paste); paste = "" }, enabled = paste.startsWith("FN1:")) { Text("Use pasted code") }
         }
-        if (stage != SyncStage.Idle) TextButton({ vm.cancelSync() }) { Text(if (stage == SyncStage.Relay) "Stop relay" else "Cancel") }
+        if (stage != SyncStage.Idle) TextButton({ vm.cancelSync() }) { Text("Cancel") }
         if (log.isNotEmpty()) SelectionContainer {
             Text(log.joinToString("\n"), fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(8.dp)).padding(8.dp))

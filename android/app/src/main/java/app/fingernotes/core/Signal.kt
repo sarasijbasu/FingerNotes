@@ -13,6 +13,8 @@ data class SignalMessage(
     val deviceId: String,
     val deviceName: String,
     val platform: String = "android",
+    /** Recipient deviceId; null = broadcast to the whole chain room. */
+    val to: String? = null,
 )
 
 object Signal {

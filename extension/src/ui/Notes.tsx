@@ -4,6 +4,7 @@ import type { Repo } from '../core/repo';
 import { Icon, IconButton, snack } from './common';
 import { Attachments, NoteEditor } from './Editor';
 import { Markdown } from './Markdown';
+import { useSyncNow } from './PullToRefresh';
 
 export type NotesFilter = 'main' | 'archive' | 'hidden';
 
@@ -17,6 +18,8 @@ export function NotesView({ repo, filter, view, onView }: { repo: Repo; filter: 
   const [q, setQ] = useState('');
   const [label, setLabel] = useState<string>('');
   const [editing, setEditing] = useState<{ note: Note; isNew: boolean } | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const syncNow = useSyncNow(() => repo.reload());
 
   const all = [...repo.notes.values()].filter((n) => !n.isTrashed);
   const visible = all
@@ -45,6 +48,17 @@ export function NotesView({ repo, filter, view, onView }: { repo: Repo; filter: 
             ))}
           </select>
         )}
+        <IconButton
+          icon="sync"
+          title={syncing ? 'Syncing…' : 'Sync now (or pull down)'}
+          on={syncing}
+          onClick={async () => {
+            if (syncing) return;
+            setSyncing(true);
+            await syncNow();
+            setSyncing(false);
+          }}
+        />
         <IconButton icon={view === 'grid' ? 'list' : 'grid'} title={view === 'grid' ? 'List view' : 'Grid view'} onClick={() => onView(view === 'grid' ? 'list' : 'grid')} />
       </div>
 

@@ -10,6 +10,8 @@ export interface SignalMessage {
   deviceId: string;
   deviceName: string;
   platform: Platform;
+  /** Recipient deviceId; absent = broadcast to the whole chain room. */
+  to?: string;
 }
 
 /** Encrypted + deflated SDP for QR codes, copy/paste or the relay (docs/PROTOCOL.md §7). */
@@ -31,42 +33,90 @@ export async function decodeSignal(key: CryptoKey, text: string): Promise<Signal
 export const compactSdp = (sdp: string) =>
   sdp.split('\r\n').filter((l) => !(l.startsWith('a=candidate') && / tcp /i.test(l))).join('\r\n');
 
+/** Base URL of the sync helper worker (no trailing slash). */
+export const relayBase = (u: string) => u.trim().replace(/\/+$/, '');
+
+let iceCache: { key: string; at: number; servers: RTCIceServer[] } | null = null;
+/** STUN + short-lived TURN credentials from the worker's /turn endpoint (cached 6 h). */
+export async function fetchIceServers(baseUrl: string, chainId: string): Promise<RTCIceServer[]> {
+  const key = baseUrl + chainId;
+  if (iceCache && iceCache.key === key && Date.now() - iceCache.at < 6 * 3600_000) return iceCache.servers;
+  try {
+    const r = await fetch(`${relayBase(baseUrl).replace(/^ws/, 'http')}/turn?room=${chainId}`);
+    if (!r.ok) return [];
+    const j = (await r.json()) as { iceServers?: RTCIceServer[] };
+    const servers = Array.isArray(j.iceServers) ? j.iceServers : [];
+    iceCache = { key, at: Date.now(), servers };
+    return servers;
+  } catch {
+    return [];
+  }
+}
+
 /**
- * Optional free relay (Cloudflare Worker, see /signaling-worker). It only ever sees FN1: ciphertext.
+ * WebSocket room on the sync helper worker (see /signaling-worker). It only ever sees FN1: ciphertext.
+ * Reconnects with backoff until close() is called.
  */
 export class RelaySignaling {
   private ws?: WebSocket;
+  private closed = false;
+  private retry = 0;
+  private timer?: ReturnType<typeof setTimeout>;
   onSignal: (m: SignalMessage) => void = () => {};
-  onStatus: (s: string) => void = () => {};
+  onStatus: (s: 'online' | 'offline') => void = () => {};
+  onOpen: () => void = () => {};
 
   constructor(private baseUrl: string, private chainId: string, private key: CryptoKey) {}
 
-  connect(): Promise<void> {
-    const url = `${this.baseUrl.replace(/\/$/, '').replace(/^http/, 'ws')}/room/${this.chainId}`;
-    return new Promise((resolve, reject) => {
-      const ws = new WebSocket(url);
-      this.ws = ws;
-      ws.onopen = () => {
-        this.onStatus('Relay connected');
-        resolve();
-      };
-      ws.onerror = () => reject(new Error('Relay unreachable'));
-      ws.onclose = () => this.onStatus('Relay closed');
-      ws.onmessage = async (ev) => {
-        try {
-          this.onSignal(await decodeSignal(this.key, String(ev.data)));
-        } catch {
-          /* foreign / garbage frame */
-        }
-      };
-    });
+  get connected() {
+    return this.ws?.readyState === WebSocket.OPEN;
+  }
+
+  connect() {
+    this.closed = false;
+    this.open();
+  }
+
+  private open() {
+    const url = `${relayBase(this.baseUrl).replace(/^http/, 'ws')}/room/${this.chainId}`;
+    let ws: WebSocket;
+    try {
+      ws = new WebSocket(url);
+    } catch {
+      return this.schedule();
+    }
+    this.ws = ws;
+    ws.onopen = () => {
+      this.retry = 0;
+      this.onStatus('online');
+      this.onOpen();
+    };
+    ws.onclose = () => {
+      this.onStatus('offline');
+      this.schedule();
+    };
+    ws.onmessage = async (ev) => {
+      try {
+        this.onSignal(await decodeSignal(this.key, String(ev.data)));
+      } catch {
+        /* foreign / garbage frame */
+      }
+    };
+  }
+
+  private schedule() {
+    if (this.closed) return;
+    clearTimeout(this.timer);
+    this.timer = setTimeout(() => this.open(), Math.min(30_000, 1000 * 2 ** this.retry++));
   }
 
   async send(m: SignalMessage) {
-    this.ws?.send(await encodeSignal(this.key, m));
+    if (this.connected) this.ws!.send(await encodeSignal(this.key, m));
   }
 
   close() {
+    this.closed = true;
+    clearTimeout(this.timer);
     this.ws?.close();
   }
 }

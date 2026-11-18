@@ -59,7 +59,7 @@ export function SettingsView({ repo, settings, unlocked, onSettings, onLock }: {
           <label className="field">Device name<input type="text" value={settings.deviceName} onChange={(e) => set({ deviceName: e.target.value })} /></label>
           <label className="field">Default currency<input type="text" maxLength={4} value={settings.defaultCurrency} onChange={(e) => set({ defaultCurrency: e.target.value })} /></label>
           <label className="field" style={{ gridColumn: '1 / -1' }}>
-            Optional relay URL (Cloudflare Worker, see /signaling-worker) — leave empty for 100% offline QR pairing
+            Relay URL — sync with your devices over the internet (deploy /signaling-worker). Leave empty for offline QR pairing only
             <input type="url" placeholder="https://fingernotes-signal.<you>.workers.dev" value={settings.signalingUrl} onChange={(e) => set({ signalingUrl: e.target.value.trim() })} />
           </label>
           <label className="field">NAT traversal

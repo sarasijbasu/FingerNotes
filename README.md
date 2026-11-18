@@ -67,11 +67,12 @@ git push origin v1.0.1
 ```
 The Android `versionCode` is `major*10000 + minor*100 + patch`. Add the `FN_KEYSTORE_*` secrets before your first real release. Without them every release is signed with a different throwaway key, so a new APK can't install over the old one.
 
-### Optional relay
-```bash
-cd signaling-worker && npm install && npx wrangler deploy
-```
-Paste the worker URL into *Settings → Relay URL* on each device. Leave it empty for the 100% offline QR handshake.
+### Internet sync (devices on different networks)
+Deploy the free sync helper once by following [signaling-worker/README.md](signaling-worker/README.md): a Cloudflare account, a TURN key and `wrangler deploy`. Then paste its URL into *Settings → Relay URL* on every device.
+
+After that, devices on the same chain sync **automatically** while open: on start, a few seconds after an edit, and every 4 minutes. **Pull down** on the notes or expenses list to sync immediately (Chrome also has a sync icon in the notes toolbar). Data still goes only device-to-device, end-to-end encrypted: the worker only introduces devices and relays encrypted packets when a network blocks direct connections. Both devices need to be open at the same time.
+
+Leave the URL empty to use only the offline QR handshake on the same Wi-Fi.
 
 ## How it works
 

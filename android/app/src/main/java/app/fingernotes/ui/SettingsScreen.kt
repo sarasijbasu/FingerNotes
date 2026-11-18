@@ -82,7 +82,7 @@ fun SettingsScreen(vm: AppViewModel, activity: MainActivity) {
             OutlinedTextField(s.deviceName, { v -> vm.updateSettings { it.copy(deviceName = v) } }, label = { Text("Device name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
             OutlinedTextField(s.defaultCurrency, { v -> vm.updateSettings { it.copy(defaultCurrency = v.take(4)) } }, label = { Text("Default currency") }, singleLine = true)
             OutlinedTextField(s.signalingUrl, { v -> vm.updateSettings { it.copy(signalingUrl = v.trim()) } }, singleLine = true, modifier = Modifier.fillMaxWidth(),
-                label = { Text("Optional relay URL (leave empty for offline QR)") })
+                label = { Text("Relay URL — sync over the internet (signaling-worker)") })
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Use free public STUN when online", Modifier.weight(1f))
                 Switch(s.useStun, { v -> vm.updateSettings { it.copy(useStun = v) } })

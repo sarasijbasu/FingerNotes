@@ -102,7 +102,20 @@ A session completes when a peer has both sent and received `done`.
 * Pairing QR: `FNPAIR:` + normalised 24-word mnemonic.
 * Offer / answer: `FN1:` + Envelope( deflate( UTF8( JSON `{ "type":"offer"|"answer"|"announce", "sdp"?, "deviceId", "deviceName", "platform" }` ))) with `syncKey`.
   SDP is non-trickle (ICE gathering completed before encoding); TCP candidates are stripped to fit QR version 40-L.
-* Optional relay: WebSocket `wss://<worker>/room/<chainId>`; the relay blindly forwards `FN1:` strings to other sockets in the room. On join each peer sends `announce`; the peer with the lexicographically **greater** deviceId creates the offer.
+* Signal JSON may carry `"to": "<deviceId>"`. A peer ignores any signal whose `to` is present and not its own deviceId. `to` absent or `null` means broadcast.
+
+### 7.1 Internet sync (pure device-to-device)
+
+* **Room:** WebSocket `wss://<worker>/room/<chainId>`. The worker forwards `FN1:` frames to the other sockets in the room and stores nothing. Clients reconnect with exponential backoff (max 30 s).
+* **ICE:** `GET https://<worker>/turn?room=<chainId>` → `{ "iceServers": [ { "urls": [...], "username"?, "credential"? } ], "ttl" }`. These are short-lived Cloudflare TURN credentials (STUN only if the worker has no TURN key). Clients add them to their own STUN list. Payloads stay end-to-end encrypted (DTLS + chain key) even when relayed through TURN.
+* **Discovery and pairing**, with `me` = own deviceId:
+  * On connect, every 4 min, 3 s after a local edit, and on pull-to-refresh: broadcast `announce`.
+  * On a broadcast `announce` from `X`: if `me > X`, send a directed `offer` to `X`; else reply with a directed `announce` to `X`.
+  * On a directed `announce` from `X` with `me > X`: send a directed `offer` (never reply to a directed announce, so there are no loops).
+  * On `offer` from `X`: answer with a directed `answer`, unless a session is already running (the offerer retries on the next announce).
+  * An offer without an answer is dropped after 30 s; a channel that doesn't open is dropped after 45 s.
+* Once the DataChannel opens, the session of §6 runs unchanged. One session at a time per device. Changes written by a session do not trigger a new announce (2.5 s quiet period).
+* Both devices must be online at the same time; nothing is stored off-device.
 
 ## 8. Encrypted backup (`.zip`)
 

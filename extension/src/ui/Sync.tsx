@@ -5,7 +5,8 @@ import type { Settings } from '../core/platform';
 import type { Repo } from '../core/repo';
 import { Peer, type Channel } from '../sync/peer';
 import { runSyncSession } from '../sync/session';
-import { decodeSignal, encodeSignal, RelaySignaling, type SignalMessage } from '../sync/signal';
+import { decodeSignal, encodeSignal } from '../sync/signal';
+import { useAutoSync, useSyncNow } from './PullToRefresh';
 import { QrImage, QrScanner, snack } from './common';
 
 interface Chain {
@@ -19,7 +20,7 @@ interface PeerRecord {
   lastSync: number;
 }
 
-export function SyncView({ repo, settings }: { repo: Repo; settings: Settings }) {
+export function SyncView({ repo, settings, onChainChanged }: { repo: Repo; settings: Settings; onChainChanged?: () => void }) {
   const [chain, setChain] = useState<Chain | null | undefined>(undefined);
   const [material, setMaterial] = useState<SyncMaterial | null>(null);
   const [peers, setPeers] = useState<PeerRecord[]>([]);
@@ -36,6 +37,7 @@ export function SyncView({ repo, settings }: { repo: Repo; settings: Settings })
   const saveChain = async (c: Chain | null) => {
     await repo.setSecret('chain', c);
     setChain(c);
+    onChainChanged?.();
   };
 
   if (chain === undefined) return null;
@@ -62,6 +64,7 @@ export function SyncView({ repo, settings }: { repo: Repo; settings: Settings })
           </button>
         </div>
       </div>
+      <InternetSync settings={settings} onSynced={() => repo.getSecret<PeerRecord[]>('peers').then((p) => setPeers(p ?? []))} />
       {material && <Connect repo={repo} material={material} settings={settings} onSynced={recordPeer} />}
       {peers.length > 0 && (
         <div className="card-panel">
@@ -75,6 +78,50 @@ export function SyncView({ repo, settings }: { repo: Repo; settings: Settings })
             </div>
           ))}
         </div>
+      )}
+    </div>
+  );
+}
+
+function InternetSync({ settings, onSynced }: { settings: Settings; onSynced: () => void }) {
+  const auto = useAutoSync();
+  const [busy, setBusy] = useState(false);
+  const syncNow = useSyncNow(onSynced);
+  const st = auto?.state;
+  const online = Object.entries(st?.online ?? {}).filter(([, p]) => Date.now() - p.seen < 10 * 60_000);
+  return (
+    <div className="card-panel" style={{ display: 'grid', gap: 10 }}>
+      <h2>Internet sync (device-to-device)</h2>
+      {!settings.signalingUrl ? (
+        <p className="muted">
+          To sync devices on <b>different networks</b>, deploy the free sync helper (<code>signaling-worker/README.md</code>) and paste its URL into{' '}
+          <b>Settings → Relay URL</b> on every device. Your notes still travel only device-to-device, end-to-end encrypted.
+        </p>
+      ) : (
+        <>
+          <p className="muted">
+            Devices on this chain find each other through your sync helper and connect directly (or via encrypted TURN when a network blocks direct
+            connections). They sync automatically while open; pull down on the notes list to sync now.
+          </p>
+          <div className="row">
+            <span className="grow">
+              Status: <b>{st?.status ?? 'off'}</b>
+              {st?.lastSyncAt ? ` · last sync ${new Date(st.lastSyncAt).toLocaleString()}` : ''}
+            </span>
+            <button className="btn primary" disabled={busy} onClick={async () => { setBusy(true); await syncNow(); setBusy(false); }}>
+              {busy ? 'Syncing…' : 'Sync now'}
+            </button>
+          </div>
+          {online.length > 0 && (
+            <div className="row">
+              {online.map(([id, p]) => (
+                <span key={id} className="chip">● {p.name} ({p.platform})</span>
+              ))}
+            </div>
+          )}
+          {st?.lastResult && <p className="muted">{st.lastResult}</p>}
+          {st && st.log.length > 0 && <div className="log">{st.log.join('\n')}</div>}
+        </>
       )}
     </div>
   );
@@ -153,18 +200,15 @@ function ChainSetup({ onDone }: { onDone: (c: Chain) => void }) {
   );
 }
 
-type Stage = { kind: 'idle' } | { kind: 'offer'; code: string; peer: Peer } | { kind: 'answer-in' } | { kind: 'answer-out'; code: string } | { kind: 'syncing' } | { kind: 'relay' };
+type Stage = { kind: 'idle' } | { kind: 'offer'; code: string; peer: Peer } | { kind: 'answer-in' } | { kind: 'answer-out'; code: string } | { kind: 'syncing' };
 
 function Connect({ repo, material, settings, onSynced }: { repo: Repo; material: SyncMaterial; settings: Settings; onSynced: (p: PeerRecord) => void }) {
   const [stage, setStage] = useState<Stage>({ kind: 'idle' });
   const [log, setLog] = useState<string[]>([]);
   const [paste, setPaste] = useState('');
   const [scan, setScan] = useState(false);
-  const relay = useRef<RelaySignaling | null>(null);
   const self = { deviceId: repo.deviceId, deviceName: settings.deviceName, platform: 'chrome' as const };
   const add = useCallback((s: string) => setLog((l) => [...l.slice(-40), `${new Date().toLocaleTimeString()}  ${s}`]), []);
-
-  useEffect(() => () => relay.current?.close(), []);
 
   async function run(channel: Promise<Channel>, peerId: string) {
     try {
@@ -178,7 +222,7 @@ function Connect({ repo, material, settings, onSynced }: { repo: Repo; material:
     } catch (e) {
       add('Error: ' + (e as Error).message);
     } finally {
-      setStage(relay.current ? { kind: 'relay' } : { kind: 'idle' });
+      setStage({ kind: 'idle' });
     }
   }
 
@@ -212,56 +256,15 @@ function Connect({ repo, material, settings, onSynced }: { repo: Repo; material:
     }
   }
 
-  async function startRelay() {
-    const r = new RelaySignaling(settings.signalingUrl, material.chainId, material.key);
-    relay.current = r;
-    let pending: Peer | null = null;
-    const seen = new Set<string>();
-    r.onStatus = add;
-    r.onSignal = async (m: SignalMessage) => {
-      if (m.deviceId === self.deviceId) return;
-      if (m.type === 'announce') {
-        add(`${m.deviceName} is online`);
-        if (self.deviceId > m.deviceId) {
-          pending = new Peer(settings.useStun);
-          const { sdp, channel } = await pending.createOffer();
-          await r.send({ type: 'offer', sdp, ...self });
-          void run(channel, m.deviceId);
-        } else if (!seen.has(m.deviceId)) {
-          seen.add(m.deviceId);
-          await r.send({ type: 'announce', ...self });
-        }
-      } else if (m.type === 'offer') {
-        const p = new Peer(settings.useStun);
-        const { sdp, channel } = await p.answerOffer(m.sdp!);
-        await r.send({ type: 'answer', sdp, ...self });
-        void run(channel, m.deviceId);
-      } else if (m.type === 'answer' && pending) {
-        await pending.acceptAnswer(m.sdp!);
-        pending = null;
-      }
-    };
-    try {
-      await r.connect();
-      setStage({ kind: 'relay' });
-      await r.send({ type: 'announce', ...self });
-      add('Waiting for other devices on the relay…');
-    } catch (e) {
-      relay.current = null;
-      add('Error: ' + (e as Error).message);
-    }
-  }
-
   return (
     <div className="card-panel" style={{ display: 'grid', gap: 10 }}>
-      <h2>Sync now</h2>
+      <h2>Offline QR pairing</h2>
       {stage.kind === 'idle' && (
         <>
-          <p className="muted">Offline QR handshake: one device shows a code, the other scans it and shows a reply. Works on the same Wi-Fi/LAN with no internet.</p>
+          <p className="muted">No internet needed: one device shows a code, the other scans it and shows a reply. Works when both are on the same Wi-Fi/LAN.</p>
           <div className="row">
-            <button className="btn primary" onClick={startOffer}>Show my code (start)</button>
+            <button className="btn" onClick={startOffer}>Show my code (start)</button>
             <button className="btn" onClick={() => setStage({ kind: 'answer-in' })}>Scan their code (join)</button>
-            {settings.signalingUrl && <button className="btn" onClick={startRelay}>Auto-connect via relay</button>}
           </div>
         </>
       )}
@@ -294,13 +297,7 @@ function Connect({ repo, material, settings, onSynced }: { repo: Repo; material:
         </>
       )}
       {stage.kind === 'syncing' && <p>Syncing…</p>}
-      {stage.kind === 'relay' && (
-        <div className="row">
-          <span className="grow">Relay active — other devices on this chain connect automatically.</span>
-          <button className="btn" onClick={() => { relay.current?.close(); relay.current = null; setStage({ kind: 'idle' }); }}>Stop</button>
-        </div>
-      )}
-      {stage.kind !== 'idle' && stage.kind !== 'relay' && stage.kind !== 'syncing' && (
+      {stage.kind !== 'idle' && stage.kind !== 'syncing' && (
         <div>
           <button className="btn" onClick={() => { if (stage.kind === 'offer') stage.peer.close(); setStage({ kind: 'idle' }); }}>Cancel</button>
         </div>

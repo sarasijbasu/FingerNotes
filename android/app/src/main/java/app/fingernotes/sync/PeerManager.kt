@@ -67,7 +67,7 @@ private class RtcChannel(private val dc: DataChannel, private val pc: PeerConnec
  * Serverless WebRTC peer (Stream WebRTC Android). Non-trickle: ICE gathering completes before
  * the SDP is exported, so the whole handshake fits in one QR code each way.
  */
-class Peer(private val factory: PeerConnectionFactory, useStun: Boolean) {
+class Peer(private val factory: PeerConnectionFactory, useStun: Boolean, extraIce: List<PeerConnection.IceServer> = emptyList()) {
     private val gatheringDone = CompletableDeferred<Unit>()
     private val remoteRtc = CompletableDeferred<MessageChannel>()
     private var failed: ((String) -> Unit)? = null
@@ -76,7 +76,7 @@ class Peer(private val factory: PeerConnectionFactory, useStun: Boolean) {
 
     init {
         pc = factory.createPeerConnection(
-        PeerConnection.RTCConfiguration(if (useStun) STUN else emptyList()).apply {
+        PeerConnection.RTCConfiguration((if (useStun) STUN else emptyList()) + extraIce).apply {
             sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
             continualGatheringPolicy = PeerConnection.ContinualGatheringPolicy.GATHER_ONCE
         },

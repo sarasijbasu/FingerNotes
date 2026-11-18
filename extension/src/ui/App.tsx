@@ -11,6 +11,8 @@ import { SettingsView } from './Settings';
 import { SyncView } from './Sync';
 import { TrashView } from './Trash';
 import { Popup } from './Popup';
+import { AutoSync } from '../sync/auto';
+import { AutoSyncContext, PullToRefresh } from './PullToRefresh';
 
 type Route = 'notes' | 'archive' | 'vault' | 'expenses' | 'trash' | 'sync' | 'settings';
 const NAV: Array<[Route, string, string]> = [
@@ -112,6 +114,16 @@ function Main({ repo, unlocked, settings, onSettings, onLock }: { repo: Repo; un
   const [route, setRoute] = useState<Route>(() => (location.hash.slice(1) as Route) || 'notes');
   const [vaultOpen, setVaultOpen] = useState(false);
   const [vaultHasPin, setVaultHasPin] = useState<boolean | null>(null);
+  const [chainVersion, setChainVersion] = useState(0);
+  const [auto, setAuto] = useState<AutoSync | null>(null);
+
+  // Internet device-to-device sync: runs while this surface is unlocked.
+  useEffect(() => {
+    const a = new AutoSync(repo, settings);
+    setAuto(a);
+    void a.start();
+    return () => a.stop();
+  }, [repo, settings.signalingUrl, settings.deviceName, settings.useStun, chainVersion]);
 
   useEffect(() => {
     location.hash = route;
@@ -122,7 +134,10 @@ function Main({ repo, unlocked, settings, onSettings, onLock }: { repo: Repo; un
   const go = (r: Route) => setRoute(r);
   const secure = route === 'vault';
 
+  const reload = () => repo.reload();
+
   return (
+    <AutoSyncContext.Provider value={auto}>
     <ObscureGuard always={secure} onBlur={settings.blurOnFocusLoss}>
       <div className="shell">
         <nav className="nav">
@@ -136,24 +151,25 @@ function Main({ repo, unlocked, settings, onSettings, onLock }: { repo: Repo; un
           <button onClick={onLock} title="Lock"><Icon name="lock" /><span className="lbl">Lock</span></button>
         </nav>
         <main className="main">
-          {route === 'notes' && <NotesView repo={repo} filter="main" view={settings.view} onView={async (view) => onSettings(await saveSettings({ view }))} />}
-          {route === 'archive' && <NotesView repo={repo} filter="archive" view={settings.view} onView={async (view) => onSettings(await saveSettings({ view }))} />}
+          {route === 'notes' && <PullToRefresh onRefreshed={reload}><NotesView repo={repo} filter="main" view={settings.view} onView={async (view) => onSettings(await saveSettings({ view }))} /></PullToRefresh>}
+          {route === 'archive' && <PullToRefresh onRefreshed={reload}><NotesView repo={repo} filter="archive" view={settings.view} onView={async (view) => onSettings(await saveSettings({ view }))} /></PullToRefresh>}
           {route === 'vault' &&
             (vaultHasPin === null ? null : !vaultHasPin ? (
               <SetVaultPin onDone={async (pin) => { await setHiddenPin(repo.db, pin); setVaultHasPin(true); setVaultOpen(true); }} />
             ) : vaultOpen ? (
-              <NotesView repo={repo} filter="hidden" view={settings.view} onView={async (view) => onSettings(await saveSettings({ view }))} />
+              <PullToRefresh onRefreshed={reload}><NotesView repo={repo} filter="hidden" view={settings.view} onView={async (view) => onSettings(await saveSettings({ view }))} /></PullToRefresh>
             ) : (
               <PinPrompt title="Hidden notes" verify={(p) => verifyHiddenPin(repo.db, p)} onOk={() => setVaultOpen(true)} />
             ))}
-          {route === 'expenses' && <ExpensesView repo={repo} currency={settings.defaultCurrency} />}
+          {route === 'expenses' && <PullToRefresh onRefreshed={reload}><ExpensesView repo={repo} currency={settings.defaultCurrency} /></PullToRefresh>}
           {route === 'trash' && <TrashView repo={repo} />}
-          {route === 'sync' && <SyncView repo={repo} settings={settings} />}
+          {route === 'sync' && <SyncView repo={repo} settings={settings} onChainChanged={() => setChainVersion((v) => v + 1)} />}
           {route === 'settings' && <SettingsView repo={repo} settings={settings} unlocked={unlocked} onSettings={onSettings} onLock={onLock} />}
         </main>
       </div>
       <SnackbarHost />
     </ObscureGuard>
+    </AutoSyncContext.Provider>
   );
 }
 

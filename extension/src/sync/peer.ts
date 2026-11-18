@@ -57,8 +57,9 @@ const opened = (dc: RTCDataChannel, pc: RTCPeerConnection, timeoutMs = 45_000) =
 /** Air-gapped capable WebRTC peer (non-trickle ICE; SDP fully gathered before export). */
 export class Peer {
   readonly pc: RTCPeerConnection;
-  constructor(useStun: boolean) {
-    this.pc = new RTCPeerConnection({ iceServers: useStun ? STUN : [] });
+  /** `extraIce` = TURN servers from the sync helper, so peers on different networks can connect. */
+  constructor(useStun: boolean, extraIce: RTCIceServer[] = []) {
+    this.pc = new RTCPeerConnection({ iceServers: [...(useStun ? STUN : []), ...extraIce] });
   }
 
   /** Initiator: returns offer SDP and a promise for the opened channel. */

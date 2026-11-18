@@ -155,3 +155,15 @@ h3 { font-size: 14px; margin: 18px 0 8px; text-transform: uppercase; letter-spac
 .log { font-family: ui-monospace, monospace; font-size: 12px; background: var(--surface-2); border-radius: 8px; padding: 8px; max-height: 160px; overflow: auto; white-space: pre-wrap; }
 video.scanner { width: 100%; max-width: 360px; border-radius: 8px; background: #000; }
 .settings section { margin-bottom: 8px; }
+
+/* pull-to-refresh + sync status */
+.ptr { display: flex; align-items: center; justify-content: center; gap: 8px; overflow: hidden; color: var(--muted); font-size: 13px; transition: height .15s, opacity .15s; }
+.ptr-icon { width: 20px; height: 20px; display: inline-grid; color: var(--accent); }
+.ptr-icon svg { width: 20px; height: 20px; fill: currentColor; }
+.ptr-icon.spin { animation: spin 0.9s linear infinite; }
+@keyframes spin { to { transform: rotate(-360deg); } }
+.sync-badge { font-size: 12px; margin: -4px 0 10px; display: flex; align-items: center; gap: 6px; }
+.sync-badge .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); display: inline-block; }
+.sync-badge .dot.online { background: var(--ok); }
+.sync-badge .dot.syncing { background: var(--accent); }
+.sync-badge .dot.connecting { background: #e0a800; }

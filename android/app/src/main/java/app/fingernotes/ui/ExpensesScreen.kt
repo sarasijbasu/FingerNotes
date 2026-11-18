@@ -134,8 +134,8 @@ fun ExpensesScreen(vm: AppViewModel) {
         exporter.launch("fingernotes-expenses-$name.xlsx")
     }
 
-    Box(Modifier.fillMaxSize()) {
-        LazyColumn(contentPadding = PaddingValues(12.dp, 8.dp, 12.dp, 96.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    SyncRefreshBox(vm, Modifier.fillMaxSize()) {
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(12.dp, 8.dp, 12.dp, 96.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.horizontalScroll(rememberScrollState())) {
                     Stat("Today", totals(active.filter { it.occurredAt >= startOfToday() }))
