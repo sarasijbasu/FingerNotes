@@ -1,0 +1,12 @@
+name = "fingernotes-signal"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+
+# Free-tier Durable Objects (SQLite-backed) hold one tiny room per sync chain.
+[[durable_objects.bindings]]
+name = "ROOMS"
+class_name = "Room"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Room"]

@@ -1,0 +1,63 @@
+name: Android app
+
+on:
+  push:
+    paths: ['android/**', 'shared/**', '.github/workflows/android.yml']
+  pull_request:
+    paths: ['android/**', 'shared/**']
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+      - name: Unit tests (incl. Chrome interop vectors)
+        run: gradle :app:testDebugUnitTest -DinteropOut=$GITHUB_WORKSPACE/interop
+      - name: Build debug APK
+        run: gradle :app:assembleDebug
+      - name: Build release APK (signed if FN_KEYSTORE_B64 secret is set)
+        env:
+          FN_KEYSTORE_B64: ${{ secrets.FN_KEYSTORE_B64 }}
+          FN_KEYSTORE_PASSWORD: ${{ secrets.FN_KEYSTORE_PASSWORD }}
+          FN_KEY_ALIAS: ${{ secrets.FN_KEY_ALIAS }}
+          FN_KEY_PASSWORD: ${{ secrets.FN_KEY_PASSWORD }}
+        run: |
+          if [ -n "$FN_KEYSTORE_B64" ]; then echo "$FN_KEYSTORE_B64" | base64 -d > $RUNNER_TEMP/release.jks; export FN_KEYSTORE=$RUNNER_TEMP/release.jks; fi
+          gradle :app:assembleRelease
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fingernotes-apk
+          path: android/app/build/outputs/apk/**/*.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-interop
+          path: interop/android-backup.zip
+
+  interop:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: android-interop
+          path: interop
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Chrome (zip.js) opens the Android (Zip4j) backup
+        working-directory: extension
+        run: |
+          npm ci
+          ANDROID_BACKUP=$GITHUB_WORKSPACE/interop/android-backup.zip npx vitest run test/interop.test.ts

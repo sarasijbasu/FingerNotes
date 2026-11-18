@@ -1,0 +1,25 @@
+{
+  "mnemonic": "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art",
+  "syncKeyHex": "ed32045f287e801f6ea420e99f9f36adf5d8cab8e985e46f66755b2f9695f56f",
+  "chainId": "a062b4f96842ce9286fc9ace582a5e1a",
+  "aesGcm": {
+    "ivHex": "000102030405060708090a0b",
+    "plaintext": "{\"t\":\"hello\",\"v\":1}",
+    "envelope": "v1.AAECAwQFBgcICQoLkz0gsREj7aFXeHP63w6irif56RFNQPKtcwU44dKUqX4O7n0"
+  },
+  "signal": {
+    "code": "FN1:v1.nDl0bVzp4aa62QpPkDcEMMQ2a-M5KMTtoxRm8ilAz03R7C24A_ztz9-49VSJjNZUASmwVjMUX6gLLF4nZp9g4QUgGczNH970XDk9lcFsazobjVuwBAFOHYq8x4s93ApRPQ6QnawvKjSygkpI0X24TtpAvNUhgTxuZTubfdW76wXtr6Gwm88",
+    "sdp": "v=0\r\no=- 1 2 IN IP4 127.0.0.1\r\n"
+  },
+  "backup": {
+    "file": "fixtures/web-backup.zip",
+    "password": "cross-platform-pw",
+    "noteId": "11111111-1111-4111-8111-111111111111",
+    "mediaId": "m1"
+  },
+  "hlcOrder": [
+    "000000000001000-00000-ffffffffffffffff",
+    "000000000001000-00001-0000000000000000",
+    "000000000001001-00000-0000000000000000"
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "extension-preview",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["--prefix", "extension", "vite", "preview", "--port", "4317", "--strictPort", "extension"],
+      "port": 4317
+    }
+  ]
+}

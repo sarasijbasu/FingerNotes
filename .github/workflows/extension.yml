@@ -1,0 +1,41 @@
+name: Chrome extension
+
+on:
+  push:
+    paths: ['extension/**', 'shared/**', '.github/workflows/extension.yml']
+  pull_request:
+    paths: ['extension/**', 'shared/**']
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: extension
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: extension/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - run: npm run package
+      - name: Pack .crx (only when CRX_PRIVATE_KEY secret is set)
+        env:
+          CRX_PRIVATE_KEY: ${{ secrets.CRX_PRIVATE_KEY }}
+        if: env.CRX_PRIVATE_KEY != ''
+        run: |
+          printf '%s' "$CRX_PRIVATE_KEY" > key.pem
+          npx --yes crx3@1 -p key.pem -o fingernotes-extension.crx dist
+          rm key.pem
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fingernotes-extension
+          path: |
+            extension/fingernotes-extension-*.zip
+            extension/fingernotes-extension.crx
+          if-no-files-found: warn

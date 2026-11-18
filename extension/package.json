@@ -1,0 +1,35 @@
+{
+  "name": "fingernotes-extension",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite build --watch --mode development",
+    "build": "tsc --noEmit && vite build",
+    "test": "vitest run",
+    "vectors": "cross-env VECTORS=1 vitest run test/vectors.gen.test.ts",
+    "package": "node scripts/package.mjs"
+  },
+  "dependencies": {
+    "@scure/bip39": "^1.6.0",
+    "@zip.js/zip.js": "^2.25.0",
+    "dexie": "^4.4.7",
+    "jsqr": "^1.4.0",
+    "qrcode": "^1.5.4",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "xlsx-js-style": "^1.2.0"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.3.7",
+    "@types/qrcode": "^1.5.6",
+    "@types/react": "^18.3.31",
+    "@types/react-dom": "^18.3.7",
+    "@vitejs/plugin-react": "^4.7.0",
+    "cross-env": "^10.1.0",
+    "fake-indexeddb": "^6.2.8",
+    "typescript": "^5.9.3",
+    "vite": "^5.4.21",
+    "vitest": "^2.1.9"
+  }
+}

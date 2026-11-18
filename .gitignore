@@ -1,0 +1,15 @@
+node_modules/
+dist/
+*.zip
+!shared/fixtures/*.zip
+*.crx
+*.pem
+.gradle/
+build/
+local.properties
+*.jks
+*.keystore
+.idea/
+.DS_Store
+.wrangler/
+interop/
