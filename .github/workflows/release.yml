@@ -67,11 +67,16 @@ jobs:
             echo "$FN_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
             export FN_KEYSTORE="$RUNNER_TEMP/release.jks"
           else
-            echo "::warning::No FN_KEYSTORE_B64 secret — APK is signed with a throwaway debug key and cannot update a previous install."
+            echo "::warning::No FN_KEYSTORE_B64 secret — APK is signed with a throwaway key and cannot update a previous install."
+            keytool -genkeypair -v -keystore "$RUNNER_TEMP/throwaway.jks" -alias fingernotes -keyalg RSA -keysize 2048 \
+              -validity 10000 -storepass throwaway -keypass throwaway -dname "CN=FingerNotes CI"
+            export FN_KEYSTORE="$RUNNER_TEMP/throwaway.jks" FN_KEYSTORE_PASSWORD=throwaway FN_KEY_ALIAS=fingernotes FN_KEY_PASSWORD=throwaway
           fi
-          gradle :app:assembleRelease
+          gradle :app:assembleRelease --stacktrace
           mkdir -p ../out
-          cp app/build/outputs/apk/release/app-release.apk "../out/FingerNotes-${{ needs.version.outputs.tag }}.apk"
+          APK=$(find app/build/outputs/apk/release -name '*.apk' | head -1)
+          echo "Built $APK"
+          cp "$APK" "../out/FingerNotes-${{ needs.version.outputs.tag }}.apk"
       - uses: actions/upload-artifact@v4
         with:
           name: apk
