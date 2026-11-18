@@ -59,6 +59,14 @@ The repo ships `gradle-wrapper.properties` but not the wrapper JAR; run `gradle 
 * `extension.yml` → tests, build, `.zip` artifact; `.crx` too when a `CRX_PRIVATE_KEY` secret exists.
 * `android.yml` → unit tests (including the Chrome vectors), debug + release `.apk` (signed when `FN_KEYSTORE_B64`, `FN_KEYSTORE_PASSWORD`, `FN_KEY_ALIAS`, `FN_KEY_PASSWORD` secrets exist), then an **interop** job where the extension opens the backup Zip4j just wrote.
 
+### Releases
+Push a version tag and `release.yml` builds the APK and the extension (`.zip`, plus `.crx` if `CRX_PRIVATE_KEY` is set), stamps both with the version, and publishes a GitHub Release:
+```bash
+git tag v1.0.1
+git push origin v1.0.1
+```
+The Android `versionCode` is `major*10000 + minor*100 + patch`. Add the `FN_KEYSTORE_*` secrets before your first real release. Without them every release is signed with a different throwaway key, so a new APK can't install over the old one.
+
 ### Optional relay
 ```bash
 cd signaling-worker && npm install && npx wrangler deploy

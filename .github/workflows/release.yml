@@ -1,0 +1,134 @@
+name: Release
+
+# Push a tag like v1.2.3 to build the APK + Chrome extension and publish a GitHub Release:
+#   git tag v1.2.3 && git push origin v1.2.3
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to (re)build, e.g. v1.2.3'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.v.outputs.tag }}
+      name: ${{ steps.v.outputs.name }}
+      code: ${{ steps.v.outputs.code }}
+    steps:
+      - id: v
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          NAME="${TAG#v}"
+          if ! [[ "$NAME" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Tag must look like v1.2.3 (got $TAG)"; exit 1
+          fi
+          IFS=. read -r MA MI PA <<< "$NAME"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "code=$((MA * 10000 + MI * 100 + PA))" >> "$GITHUB_OUTPUT"
+
+  android:
+    needs: version
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android
+    env:
+      VERSION_NAME: ${{ needs.version.outputs.name }}
+      VERSION_CODE: ${{ needs.version.outputs.code }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.tag }}
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+      - name: Unit tests
+        run: gradle :app:testDebugUnitTest
+      - name: Build release APK
+        env:
+          FN_KEYSTORE_B64: ${{ secrets.FN_KEYSTORE_B64 }}
+          FN_KEYSTORE_PASSWORD: ${{ secrets.FN_KEYSTORE_PASSWORD }}
+          FN_KEY_ALIAS: ${{ secrets.FN_KEY_ALIAS }}
+          FN_KEY_PASSWORD: ${{ secrets.FN_KEY_PASSWORD }}
+        run: |
+          if [ -n "$FN_KEYSTORE_B64" ]; then
+            echo "$FN_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
+            export FN_KEYSTORE="$RUNNER_TEMP/release.jks"
+          else
+            echo "::warning::No FN_KEYSTORE_B64 secret — APK is signed with a throwaway debug key and cannot update a previous install."
+          fi
+          gradle :app:assembleRelease
+          mkdir -p ../out
+          cp app/build/outputs/apk/release/app-release.apk "../out/FingerNotes-${{ needs.version.outputs.tag }}.apk"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apk
+          path: out/*.apk
+
+  extension:
+    needs: version
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: extension
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.tag }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: extension/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - name: Stamp version from tag
+        run: |
+          jq --arg v "${{ needs.version.outputs.name }}" '.version = $v' public/manifest.json > m.json && mv m.json public/manifest.json
+      - run: npm run build
+      - run: npm run package
+      - name: Pack .crx (only when CRX_PRIVATE_KEY secret is set)
+        env:
+          CRX_PRIVATE_KEY: ${{ secrets.CRX_PRIVATE_KEY }}
+        if: env.CRX_PRIVATE_KEY != ''
+        run: |
+          printf '%s' "$CRX_PRIVATE_KEY" > key.pem
+          npx --yes crx3@1 -p key.pem -o "fingernotes-extension-${{ needs.version.outputs.name }}.crx" dist
+          rm key.pem
+      - uses: actions/upload-artifact@v4
+        with:
+          name: extension
+          path: |
+            extension/fingernotes-extension-*.zip
+            extension/fingernotes-extension-*.crx
+          if-no-files-found: warn
+
+  publish:
+    needs: [version, android, extension]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.version.outputs.tag }}
+          name: FingerNotes ${{ needs.version.outputs.tag }}
+          generate_release_notes: true
+          files: dist/*
+          body: |
+            **Android:** download `FingerNotes-${{ needs.version.outputs.tag }}.apk` and open it on your phone (allow installs from your browser/file manager).
+            **Chrome:** download `fingernotes-extension-${{ needs.version.outputs.name }}.zip`, unzip it, then `chrome://extensions` → Developer mode → **Load unpacked** → the unzipped folder.
